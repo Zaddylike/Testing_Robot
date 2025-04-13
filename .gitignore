@@ -1,0 +1,28 @@
+# Python 編譯
+__pycache__/
+*.pyc
+*.pyd
+*.dll
+
+# VSCode 設定
+.vscode/settings.json
+
+# 測試記錄
+# *.log
+*.csv
+*.xlsx
+*.mp4
+
+# 虛擬環境
+.env/
+.venv/
+env/
+venv/
+
+# 其他忽略
+.DS_Store
+*.zip
+reference/
+tmp_file/
+APITestAgent_dev/
+
