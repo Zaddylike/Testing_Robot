@@ -1,10 +1,14 @@
-import websockets
-import logging
-import json
+from core import (
+    parser_Yaml
+    )
+from utils import encodePassword
 import asyncio
+import logging
+import websockets
+import json
 
-async def robot_login(account):
-    uri = "wss://web.qosuat.com/ws/"
+async def robot_in_and_out(account):
+    uri = "wss://web-pp2.pkxxz.com/ws/"
     retry_count = 0
     max_retries = 3
     
@@ -59,7 +63,12 @@ async def robot_login(account):
                         if login_msg_id == 201:
                             userid = login_msg_body['userId']
                             logging.info(f"Player {userid} - Login successful")
-                            await handle_game_operations(websocket, userid)
+                            seatup_request = {
+                                "msgId": 214,
+                                "msgBody": json.dumps({})
+                            }
+                            await websocket.send(json.dumps(seatup_request))
+                            logging.info("已退出所設定之測試帳號")
                             break
                 
                 except asyncio.TimeoutError:
@@ -76,3 +85,23 @@ async def robot_login(account):
 
     if retry_count >= max_retries:
         logging.error(f"Max Retries - Failed after {max_retries} attempts for account {account['Acc']}")
+
+
+async def main():
+    logging.info("Starting poker bot...")
+    robot_data = parser_Yaml("./data/NLH_robotData.yaml")
+    robot_login_list = robot_data['loginData']
+    for i in robot_login_list:
+        i["PW"] = encodePassword(i.get("Acc", "+852 0922"),i.get("PW", "aaaa1234"))
+
+    tasks = [robot_in_and_out(account) for account in robot_login_list]
+    await asyncio.gather(*tasks)
+
+if __name__ == "__main__":
+    logging.info("已退出所設定之測試帳號")
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Poker bot stopped by user")
+    except Exception as e:
+        logging.error(f"Main error: {str(e)}", exc_info=True)

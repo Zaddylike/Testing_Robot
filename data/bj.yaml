@@ -1,0 +1,80 @@
+robotData:
+  uri: "wss://web-pp2.pkxxz.com/ws/"
+  timeout: 10
+  roomId:
+  gameType: 820
+loginData:
+  # - Acc: "+852 0933"
+  #   PW: "aaaa1234"
+  # - Acc: "+852 0944"
+  #   PW: "aaaa1234"
+  # - Acc: "+852 0955"
+  #   PW: "aaaa1234"
+  # - Acc: "+852 0966"
+  #   PW: "aaaa1234"
+  - Acc: "+852 0977"
+    PW: "aaaa1234"
+case:
+- params:
+    casename: 登入
+    msgId: 201
+    senddata:
+      "userName": "+852 0911"
+      "password": "aaaa1234"
+      "imei": ""
+      "model": ""
+      "channel": "德州"
+      "channelInt": 100
+      "version": 1.15.24.5
+      "jingDu": 200
+      "weiDu": 200
+      "language": 0
+      "verify": 1
+  expect:
+    - 201
+    - login success
+- params:
+    casename: 進入_21
+    msgId: 2101
+    senddata:
+      "gameType": 820
+      "roomID": 374
+  expect:
+    - 2101
+    - Success
+- params:
+    casename: 等待買入_21
+    msgId: 2102
+    senddata:
+      "gameID": ""
+      "seat": 1
+  expect:
+    - 2102
+    - Success
+- params:
+    casename: 買入送出_21
+    msgId: 2103
+    senddata: 
+      "gameID": ""
+      "seat": 1
+      "usePlatformCoins": 1
+  expect:
+    - 2103
+    - Success
+# - params:
+#     casename: 下注_21
+#     msgId: 2135
+#     senddata: 
+#       "gameID": ""
+#       "amount": 100
+#   expect:
+#     - 2135
+#     - Success
+# - params:
+#     casename: 確認下注_21
+#     msgId: 2121
+#     senddata: 
+#       "gameID": ""
+#   expect:
+#     - 2121
+#     - Success
