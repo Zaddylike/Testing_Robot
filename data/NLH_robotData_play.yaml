@@ -1,0 +1,81 @@
+apiname: NLH_robots
+env: dev
+url: wss://web.qosuat.com/ws/
+method: websocket
+gametype: 
+headers:
+  Content-Type: "application/json"
+play: True
+case:
+  - params:
+      casename: 登入
+      url: wss://web.qosuat.com/ws/
+      method: websocket
+      headers:
+        Content-Type: "application/json"
+      retry: True
+      loop: 0
+      keep: ""
+      msgid: 201
+      body:
+        "userName": $usr
+        "password": $pwd
+        "imei": ""
+        "model": ""
+        "channel": "德州"
+        "channelInt": 100
+        "version": 1.15.27.4
+        "jingDu": 200
+        "weiDu": 200
+        "language": 0
+        "verify": 1
+    expect: [201, login success]
+
+  - params:
+      casename: 進入_NLH_1
+      url: wss://web.qosuat.com/ws/
+      method: websocket
+      headers:
+        Content-Type: "application/json"
+      retry: True
+      loop: 0
+      keep: ""
+      msgid: 207
+      body:
+        "gameType": 800
+        "gameId": 1282387
+        "ChangeDesk": False
+        "is213Broadable": False
+        "isCoinQuick": True
+        "coinQuickLevel": 741
+    expect: [207, 进入房间成功！]
+
+  - params:
+      casename: 坐下_NLH_1
+      url: wss://web.qosuat.com/ws/
+      method: websocket
+      headers:
+        Content-Type: "application/json"
+      retry: False
+      loop: 0
+      keep: ""
+      msgid: 208
+      body:
+        "pos": 0
+    expect: [208, success！]
+
+  - params:
+      casename: 買入_NLH_1
+      url: wss://web.qosuat.com/ws/
+      method: websocket
+      headers:
+        Content-Type: "application/json"
+      retry: True
+      loop: 0
+      keep: ""
+      msgid: 210
+      body:
+        "take": 500
+        "usePlatformCoins": 1
+        "reason": "normal"
+    expect: [210, 成功！]

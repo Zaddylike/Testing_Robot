@@ -1,107 +1,88 @@
-from core import (
-    parser_Yaml
-    )
-from utils import encodePassword
 import asyncio
+import json
 import logging
 import websockets
-import json
+from core import parser_Yaml
+from utils import encodePassword
+import csv
 
-async def robot_in_and_out(account):
-    uri = "wss://web-pp2.pkxxz.com/ws/"
-    retry_count = 0
-    max_retries = 3
-    
-    while retry_count < max_retries:
-        try:
-            async with websockets.connect(
-                uri,
-                ping_interval=None,
-                ping_timeout=10,
-                close_timeout=10,
-                max_size=2**20
-            ) as websocket:
-                logging.info(f"WebSocket Connected - Account {account['Acc']}")
-                
-                # 登入請求
-                login_request = {
-                    "msgId": 201,
-                    "msgBody": json.dumps({
-                        "userName": account["Acc"],
-                        "password": account["PW"],
-                        "imei": "",
-                        "model": "",
-                        "channel": "德州",
-                        "channelInt": 100,
-                        "version": "1.10.11.2",
-                        "jingDu": 25.0360047,
-                        "weiDu": 121.5749637,
-                        "language": 2,
-                        "verify": 1
-                    })
-                }
-                logging.info(f"SEND - MsgId 201: { account['Acc'] } ")
+logging.basicConfig(level=logging.INFO)
 
-                try:
-                    await asyncio.wait_for(
-                        websocket.send(json.dumps(login_request)),
-                        timeout=5
-                    )
-                    
-                    login_recv = await asyncio.wait_for(
-                        websocket.recv(),
-                        timeout=5
-                    )
-                    login_response = json.loads(login_recv)
-                    recv_body = json.loads(login_response.get('msgBody'))
-                    logging.info(f"RECV - MsgId {login_response.get('msgId')}: {recv_body.get('reason')}")
-                    
-                    if isinstance(login_response, dict):
-                        login_msg_id = login_response.get('msgId')
-                        login_msg_body = json.loads(login_response.get('msgBody', '{}'))
+async def send_and_receive(websocket, msg):
+    try:
+        await websocket.send(json.dumps(msg))
+        res = await asyncio.wait_for(websocket.recv(), timeout=180)
+        return json.loads(res)
+    except Exception as e:
+        logging.error(f"[SEND/RECV] 失敗: {e}", exc_info=True)
+        return None
 
-                        if login_msg_id == 201:
-                            userid = login_msg_body['userId']
-                            logging.info(f"Player {userid} - Login successful")
-                            seatup_request = {
-                                "msgId": 214,
-                                "msgBody": json.dumps({})
-                            }
-                            await websocket.send(json.dumps(seatup_request))
-                            logging.info("已退出所設定之測試帳號")
-                            break
-                
-                except asyncio.TimeoutError:
-                    logging.error(f"Timeout - Operation timeout for account {account['Acc']}")
-                    retry_count += 1
-                    await asyncio.sleep(2)
-                    continue
-                    
-        except Exception as e:
-            logging.error(f"Connection Error - Account {account['Acc']}: {str(e)}", exc_info=True)
-            retry_count += 1
-            await asyncio.sleep(2)
-            continue
+async def robot_quit(account, uri):
+    try:
+        async with websockets.connect(uri, ping_interval=None,ping_timeout=180) as ws:
+            logging.info(f"🟢 連線成功 - {account[0]}")
 
-    if retry_count >= max_retries:
-        logging.error(f"Max Retries - Failed after {max_retries} attempts for account {account['Acc']}")
+            login_msg = {
+                "msgId": 201,
+                "msgBody": json.dumps({
+                    "userName": account[0],
+                    "password": account[1],
+                    "imei": "",
+                    "model": "",
+                    "channel": "德州",
+                    "channelInt": 100,
+                    "version": "1.10.11.2",
+                    "jingDu": 25.0360047,
+                    "weiDu": 121.5749637,
+                    "language": 2,
+                    "verify": 1
+                })
+            }
+            roomid = {
+                "gameType": 800,
+                "gameId": 1282357,
+                "ChangeDesk": False,
+                "is213Broadable": False,
+                "isCoinQuick": True,
+                "coinQuickLevel": 744
+            }
+            res = await send_and_receive(ws, login_msg)
+            if res and res.get("msgId") == 201:
+                reason = json.loads(res["msgBody"]).get("reason")
+                logging.info(f"登入成功: {account[0]} - {reason}")
+                res_1 = await send_and_receive( ws, {"msgId": 207, "msgBody": json.dumps(roomid)} )
+                # logging.info(f"{account[0]} 進入房間 {res_1}")
+                # 執行站起 (MsgId 214)
+                res_2 = await send_and_receive(ws, {"msgId": 214, "msgBody": json.dumps({})})
+                logging.info(f"{account[0]} 已退出牌桌 {res_2}")
+                res_3 = await send_and_receive(ws, {"msgId": 209, "msgBody": json.dumps({})})
+                logging.info(f"{account[0]} 已離開房間 {res_3}")
+            else:
+                logging.warning(f"登入失敗: {account[0]}")
 
+    except Exception as e:
+        logging.error(f"連線錯誤 - {account[0]} : {e}", exc_info=True)
 
 async def main():
-    logging.info("Starting poker bot...")
     robot_data = parser_Yaml("./data/NLH_robotData.yaml")
-    robot_login_list = robot_data['loginData']
-    for i in robot_login_list:
-        i["PW"] = encodePassword(i.get("Acc", "+852 0922"),i.get("PW", "aaaa1234"))
-
-    tasks = [robot_in_and_out(account) for account in robot_login_list]
-    await asyncio.gather(*tasks)
+    uri = robot_data.get("url", "wss://web.qosuat.com/ws/")
+    path = "./QAPokerMockClient/accounts.csv"
+    robot_login_list ={}
+    with open(path, 'r') as file:
+        csvReader = csv.reader(file)
+        listReport = list(csvReader)
+    tasks = []
+    for i, v in enumerate(listReport[1000:1200]):
+        if i == 300:
+            break
+        # tasks.append(robot_quit(v, uri))
+        await robot_quit(v, uri)
+    # await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
-    logging.info("已退出所設定之測試帳號")
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logging.info("Poker bot stopped by user")
+        logging.info("🔴 使用者手動中止")
     except Exception as e:
-        logging.error(f"Main error: {str(e)}", exc_info=True)
+        logging.error(f"主程序錯誤: {e}", exc_info=True)

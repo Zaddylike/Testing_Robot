@@ -1,0 +1,20 @@
+{
+    "recommendations": [
+        "alexowl.transparent-color-theme",
+        "brandonkirbyson.vscode-animations",
+        "drcika.apc-extension",
+        "formulahendry.code-runner",
+        "github.copilot",
+        "github.copilot-chat",
+        "hediet.vscode-drawio",
+        "ionutvmi.path-autocomplete",
+        "mechatroner.rainbow-csv",
+        "ms-python.debugpy",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "oderwat.indent-rainbow",
+        "pkief.material-icon-theme",
+        "usernamehw.errorlens",
+        "zhuangtongfa.material-theme"
+    ]
+}
