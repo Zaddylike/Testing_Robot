@@ -122,8 +122,12 @@ async def handle_913(websocket, msg_body, user_id, shared_data):
                 cards = table.get('cards', [])
                 if cards:
                     points, card_readable, suits = convert_card_readable(cards)
-                    user_points[user_id] = points
-                    logging.info(f"Robot {shared_data.get(user_id, user_id)} , 手牌: {card_readable}")
+
+                    old = user_points.get(user_id, None)
+
+                    if old is None or old != points:
+                        user_points[user_id] = points
+                        logging.info(f"Robot-{user_id} 手牌 {card_readable}")
         else:
             raise Exception(f"[ERROR] 玩家沒拿到2張牌阿!! ")
     except Exception as e:
@@ -147,7 +151,7 @@ async def handle_217(websocket, msg_body, user_id, shared_data):
         if msg_body.get('userId') == user_id:
             points = user_points.get(user_id)
             if not points or len(points) < 2:
-                logging.warning(f"Robot:{user_id} 還沒到拿牌階段:{points} ， 跳過。")
+                logging.warning(f"Robot-{user_id} 還沒到拿牌階段:{points} ， 跳過。")
                 return
             
             # 每次操作的id流水
@@ -167,7 +171,7 @@ async def handle_217(websocket, msg_body, user_id, shared_data):
             await websocket.send(json.dumps(msg))
 
             action_Map = {1:"弃牌", 2:"让牌", 3:"跟注", 4:"加注", 5:"全下", 6:"延时"}
-            logging.info(f"Robot:{user_id} 的行動: {action_Map.get(action["gameOpType"], "無動作")}")
+            logging.info(f"Robot-{user_id}  {action_Map.get(action["gameOpType"], "無動作")}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 217: {e}", exc_info=True)
 # 公共牌
@@ -254,7 +258,6 @@ async def handle_213(websocket, msg_body, user_id, shared_data):
 
     if not display_user:
         shared_data[user_id]=msg_body.get('userInfo').get('nickname')
-
 #  add params for shared
 
 def add_shared_params(case_params: dict, shared_data: dict):
