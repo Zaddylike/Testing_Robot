@@ -255,26 +255,6 @@ async def handle_213(websocket, msg_body, user_id, shared_data):
     if not display_user:
         shared_data[user_id]=msg_body.get('userInfo').get('nickname')
 
-
-
-# 工廠化所有機器人的各種操作函式，日後好維護
-
-async def robot_play(websocket, user_id, shared_data):
-    while True:
-        try:
-            reps = await websocket.recv()
-            jsonify_Reps = json.loads(reps)
-            msg_id = jsonify_Reps.get("msgId")
-            msg_body = json.loads(jsonify_Reps.get('msgBody', '{}'))
-        except Exception as e:
-            logging.error(f"機器人解析RECV時遇到ERROR:{e}")
-            raise Exception(e)
-        handler_Action = MSG_Handlerlist.get(msg_id, None)
-        if handler_Action:
-            await handler_Action(websocket, msg_body, user_id, shared_data)
-        else:
-            logging.debug(f"[DEBUG] 未處理過的 MsgId: {msg_id}")
-
 #  add params for shared
 
 def add_shared_params(case_params: dict, shared_data: dict):
@@ -331,8 +311,30 @@ async def handle_2102(websocket, body, expect, retry, shared_data):
 
     return state, reps
 
-# 簡化登入到買入流程   
+# 工廠化所有機器人的各種操作函式，日後好維護
 
+async def robot_play(websocket, user_id, shared_data):
+    while True:
+        try:
+            reps = await websocket.recv()
+            jsonify_Reps = json.loads(reps)
+            msg_id = jsonify_Reps.get("msgId")
+            msg_body = json.loads(jsonify_Reps.get('msgBody', '{}'))
+        except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
+                pong = await websocket.ping()
+                await asyncio.wait_for(pong, timeout=5)
+                logging.debug('Ping OK, keeping connection alive...')
+                continue
+        except Exception as e:
+            logging.error(f"機器人解析RECV時遇到ERROR:{e}")
+            await asyncio.sleep(3)
+        handler_Action = MSG_Handlerlist.get(msg_id, None)
+        if handler_Action:
+            await handler_Action(websocket, msg_body, user_id, shared_data)
+        else:
+            logging.debug(f"[DEBUG] 未處理過的 MsgId: {msg_id}")
+
+# 簡化登入到買入流程   
 
 async def connect_ws_retry(url, retries:int =5):
     for i in range(retries):
@@ -354,49 +356,58 @@ async def robot_login(account, yamlData):
     url = yamlData.get('url', 'wss://web-pp2.pkxxz.com/ws/')
     cases = yamlData.get("cases", [])
     play = yamlData.get('play', False)
-
-    ws = await connect_ws_retry(url, 3)
     shared_data = {}
-            
-    async with ws:
-        for i,case in enumerate(cases):
-            params = case.get('params')
-            expect = case.get('expect', None)
-            msg_id = params.get('msgid', 0)
-            body = params.get('body', {})
-            retry = params.get('retry', True)
-            keep = params.get('keep', "")
+    while True:
+        try:
+            ws = await connect_ws_retry(url, 3)
+            async with ws:
+                for i,case in enumerate(cases):
+                    params = case.get('params')
+                    expect = case.get('expect', None)
+                    msg_id = params.get('msgid', 0)
+                    body = params.get('body', {})
+                    retry = params.get('retry', True)
+                    keep = params.get('keep', "")
 
-            if msg_id == 201:
-                body["userName"], body["password"] = account[0], account[1]
+                    if msg_id == 201:
+                        body["userName"], body["password"] = account[0], account[1]
 
-            # 因為是用一個檔案去跑多執行緒，帳密都要換
-            handler_Action = notplayAction_Handler.get(msg_id, None)
-            if handler_Action:
-                state, reps = await handler_Action(ws, body, expect, retry, shared_data)
-            else:
-                state, reps = await sendmsg_handler(ws, msg_id, body, expect, retry)
+                    # 因為是用一個檔案去跑多執行緒，帳密都要換
+                    handler_Action = notplayAction_Handler.get(msg_id, None)
+                    if handler_Action:
+                        state, reps = await handler_Action(ws, body, expect, retry, shared_data)
+                    else:
+                        state, reps = await sendmsg_handler(ws, msg_id, body, expect, retry)
 
-            # 替換 game_id
-            if "gameId" in body and shared_data.get("game_id") and body['gameId'] == "":
-                body["gameId"] = shared_data["game_id"]
+                    # 替換 game_id
+                    if "gameId" in body and shared_data.get("game_id") and body['gameId'] == "":
+                        body["gameId"] = shared_data["game_id"]
 
-            if state and keep:
-                if isinstance(reps, dict) and (keep in reps):
-                    shared_data[keep] = reps[keep]
+                    if state and keep:
+                        if isinstance(reps, dict) and (keep in reps):
+                            shared_data[keep] = reps[keep]
 
-            if state and msg_id == 201:
-                try:
-                    shared_data["user_id"] = reps.get("userId")
-                except Exception as e:
-                    logging.info(e)
-        # raise ValueError("就是要錯啦")
-        if play and "user_id" in shared_data:
-            logging.info(f"進入牌桌前所儲存的shared_data: {shared_data}")
-            await robot_play(ws, shared_data["user_id"], shared_data)
-        else:
-            await ws.close()
-            logging.info(f"[DONE] CASE任務完成 遊玩模式: {play}")
+                    if state and msg_id == 201:
+                        try:
+                            shared_data["user_id"] = reps.get("userId")
+                        except Exception as e:
+                            logging.info(e)
+                # raise ValueError("就是要錯啦")
+                if play and "user_id" in shared_data:
+                    logging.info(f"進入牌桌前所儲存的shared_data: {shared_data}")
+                    await robot_play(ws, shared_data["user_id"], shared_data)
+                else:
+                    await ws.close()
+                    logging.info(f"CASE任務完成 遊玩模式: {play}")
+                    break
+        except websockets.exceptions.ConnectionClosedError as wsconnecterror:
+            logging.warning(f"Fail to connect, retry to connect, Error: {wsconnecterror}")
+            await asyncio.sleep(3)
+            continue
+        except Exception as e:
+            logging.warning(f"Reconnect...:{e}",exc_info=True)
+            await asyncio.sleep(3)
+            continue
 
 # 將yaml的格式轉換成發送web socket api的format
 
