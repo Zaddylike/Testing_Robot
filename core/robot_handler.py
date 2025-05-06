@@ -5,40 +5,10 @@ import asyncio
 import random
 import copy
 MSG_Handlerlist = {}
+notplayAction_Handler = {}
 user_points = {}
-# 將yaml的格式轉換成發送web socket api的format
+seat_lock = asyncio.Lock()
 
-def msgbody_build(msg_id: int, msg_body: str) -> str:
-    return {
-        "msgId": msg_id,
-        "msgbody": json.dumps(msg_body)
-    }
-
-# 執行websocket的api發送，分為單次跟Retry
-
-async def sendmsg_handler(websocket, msg_id: int, msg_body: str, msg_expect=None, retry=True, timeout=20):
-    try:
-        msg = msgbody_build(msg_id, msg_body)
-        # logging.info(f"[SEND] MsgId: {msg_id}")
-        await websocket.send(json.dumps(msg))
-        while True:
-            reps = await asyncio.wait_for(websocket.recv(), timeout=timeout)
-            jsonify_Reps = json.loads(reps)
-            reps_Msgid = jsonify_Reps.get("msgId", 0)
-            reps_Msgbody = json.loads(jsonify_Reps.get("msgBody", "{}"))
-
-            if msg_expect == None or (reps_Msgid == msg_expect[0] and msg_expect[1] in reps_Msgbody.get('reason', '')):
-                logging.info(f"[RECV] MsgId: {reps_Msgid} {reps_Msgbody['reason']}")
-                return True, reps_Msgbody
-            if not retry:
-                return False, None
-            
-            # await asyncio.sleep(0.1)
-    except asyncio.TimeoutError:
-        logging.error(f"[TIMEOUT] 等待超時 MsgId {msg_id}")
-    except Exception as e:
-        logging.error(f"[ERROR] Send WebsocketAPi: {e}", exc_info=True)
-    return False, None
 
 # msg回傳底牌轉換成數字，需優畫
 
@@ -86,51 +56,54 @@ def convert_card_readable(card_numbers):
 # 機器人操作決策， 未來會想訓練model來判斷，目前就先簡單判斷
 
 async def decide_robot_action(points, msg_body):
-    # 每次操作的id流水
-    cmd_id = msg_body.get('commandId', 0)
     # 跟注所需金額
-    call_count = msg_body.get("callCount", 0)
+    call_count = msg_body.get("callCount")
     # 加注所需金額
-    raise_count = msg_body.get("raisCount", 0)
+    raise_count = msg_body.get("raisCount")
     # 還沒調查
-    min_raise = msg_body.get("minRaise", 2)
+    min_raise = msg_body.get("minRaise")
     # 還沒調查
-    min_call = msg_body.get("minCall", 2)
+    min_call = msg_body.get("minCall")
     
     # action rule => {1:"弃牌", 2:"让牌", 3:"跟注", 4:"加注", 5:"全下", 6:"延时"}
     # AK, AQ, AJ, A10, KQ, KJ, K10, QJ, Q10, J10 or AA, KK, QQ, JJ, 1010
+    if min_call == 0:
+        if random.random() < 0.69:
+            return 2, 0
+        else:
+            return 4, raise_count*2
+    #強牌系列
     if (points[0]>=10 and points[1]>=10) or (points[0]==points[1] and points[0] >= 10):
-        action_Type = 4
+        if random.random() < 0.78:
+            return 4, raise_count*3
+        else:
+            return 4, raise_count*2
+    #強牌系列
+    if (points[0]>=10 and points[1]>=10):
+        if random.random() < 0.69:
+            return 3, call_count*2
+        else:
+            return 3, call_count
 
     # 55, 66, 77, 88, 99
-    elif (points[0]==points[1]) and (5 <= points[0] < 10):
-        action_Type = 3
-
+    elif (points[0]==points[1]) and (5 <= points[0] < 10) and ((points[0]>=10)):
+        return 3, call_count
     # 44, 33, 22
-    elif points[0]==points[1] and 2 <= points[0] < 5:
-        action_Type = 3
-
+    elif (points[0]==points[1]) and (2 <= points[0] < 5):
+        if random.random() < 0.5:
+            return 3, call_count
+        else:
+            return 1, 0
     # 98, 87, 76, 65, 54, 43, 32 
     elif points[0]<10 and (points[0]-points[1]) < 1:
-        action_Type = 2
-    # 普通偏弱排型
-    elif points[0]<10 and (points[0]-points[1]) < 2:
-        action_Type = 2
+        if random.random() < 0.5:
+            return 3, call_count
+        else:
+            return 1, 0
     # 弱到直接棄牌下一局
     else:
-        action_Type = 1
-    
+        return 1, 0
 
-    if raise_count > 5 and action_Type == 4:
-        action_Type = 3
-
-    score = 0
-    if action_Type == 3:
-        score = min_call
-    elif action_Type == 4:
-        score = min_raise
-
-    return action_Type, score, cmd_id
 
 # match&case維護成本過高， 參考decorator寫法
 
@@ -145,11 +118,12 @@ def register_handler(msg_id):
 async def handle_913(websocket, msg_body, user_id, shared_data):
     try:
         if isinstance(msg_body, list) and len(msg_body) > 0:
-            cards = msg_body[0].get('cards', [])
-            if cards:
-                points, card_readable, suits = convert_card_readable(cards)
-                user_points[user_id] = points
-                logging.info(f"[Observe] Robot:{user_id},的手牌是: {card_readable}")
+            for table in msg_body:
+                cards = table.get('cards', [])
+                if cards:
+                    points, card_readable, suits = convert_card_readable(cards)
+                    user_points[user_id] = points
+                    logging.info(f"Robot {shared_data.get(user_id, user_id)} , 手牌: {card_readable}")
         else:
             raise Exception(f"[ERROR] 玩家沒拿到2張牌阿!! ")
     except Exception as e:
@@ -169,27 +143,31 @@ async def handle_913(websocket, msg_body, user_id, shared_data):
 async def handle_217(websocket, msg_body, user_id, shared_data):
     try:
         #牌力邏輯
+        #1003093 1003091 1003088 1003082
         if msg_body.get('userId') == user_id:
             points = user_points.get(user_id)
             if not points or len(points) < 2:
-                logging.warning(f"[Observe] Robot:{user_id} 還沒到拿牌階段， 跳過。")
+                logging.warning(f"Robot:{user_id} 還沒到拿牌階段:{points} ， 跳過。")
                 return
+            
+            # 每次操作的id流水
+            cmd_id = msg_body.get('commandId')
+            actionType, score= await decide_robot_action(points, msg_body)
 
-            actionType, score, cmd_id = await decide_robot_action(points, msg_body)
-            action_Map = {1:"弃牌", 2:"让牌", 3:"跟注", 4:"加注", 5:"全下", 6:"延时"}
             action = {
                 "gameOpType": actionType,
                 "score": score,
                 "commandId": cmd_id
             }
-            #Json -> dict
             msg = msgbody_build(218, action)
+
             sleep_time = random.uniform(1, 2)  # 隨機等待1-3秒
             await asyncio.sleep(sleep_time)
-            actName = action_Map.get(action["gameOpType"], "無動作")
-            logging.info(f"[Observe] Robot:{user_id} 的行動: {actName}")
 
             await websocket.send(json.dumps(msg))
+
+            action_Map = {1:"弃牌", 2:"让牌", 3:"跟注", 4:"加注", 5:"全下", 6:"延时"}
+            logging.info(f"Robot:{user_id} 的行動: {action_Map.get(action["gameOpType"], "無動作")}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 217: {e}", exc_info=True)
 # 公共牌
@@ -253,38 +231,30 @@ async def handle_218(websocket, msg_body, user_id, shared_data):
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 218: {e}", exc_info=True)
 #Rebuy
-@register_handler(356)
-async def handle_356(websocket, msg_body, user_id, shared_data):
+@register_handler(279)
+async def handle_279(websocket, msg_body, user_id, shared_data):
     try:
-        is_canbuy = msg_body.get('isCanRebuy')
-        if is_canbuy:
-            rebuy_id = 341
-            rebuy_body = {"gameType": 908,"matchId": 3038}
-            repsStatus, reps_msgBody = await sendmsg_handler(websocket, rebuy_id, rebuy_body, [341, "报名成功"], retry=True)
-            if repsStatus:
-                logging.info(f"操作[MTT_Re-Buy]成功")
+        rebuy_request = {
+            "msgId": 210,
+            "msgBody": json.dumps(
+                    {
+                    "take": 888,
+                    "usePlatformCoins": 1,
+                    "reason": "normal"
+                    }
+                )
+            }
+        await websocket.send(json.dumps(rebuy_request))
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 218: {e}", exc_info=True)
-#BJ下注
-@register_handler(2122)
-async def handle_2122(websocket, msg_body, user_id, shared_data):
-    try:
-        logging.info(msg_body)
-        game_id = shared_data['game_id']
-        msgid_bet = 2135
-        msgbody_bet = {"gameID": game_id,"amount": 100}
-        repsStatus, reps_msgBody = await sendmsg_handler(websocket, msgid_bet, msgbody_bet, [2135, "Success"], False)
-        logging.info(f"Player {user_id} 操作[下注]成功")
-        msgid_bet = 2121
-        msgbody_bet = {"gameID": game_id}
-        repsStatus, reps_msgBody = await sendmsg_handler(websocket, msgid_bet, msgbody_bet, [2121, "Success"], False)
-        if repsStatus:
-            logging.info(f"[Observe] Robot:{user_id} 操作[確認下注]成功")
-        else:
-            logging.warning(f"[Observe] Robot:{user_id} 操作[確認下注]失敗")
-            
-    except Exception as e:
-        logging.warning(f"[ERROR] MsgId 2135: {e}", exc_info=True)
+#get user name
+@register_handler(213)
+async def handle_213(websocket, msg_body, user_id, shared_data):
+    display_user = shared_data.get(user_id, None)
+
+    if not display_user:
+        shared_data[user_id]=msg_body.get('userInfo').get('nickname')
+
 
 
 # 工廠化所有機器人的各種操作函式，日後好維護
@@ -298,6 +268,7 @@ async def robot_play(websocket, user_id, shared_data):
             msg_body = json.loads(jsonify_Reps.get('msgBody', '{}'))
         except Exception as e:
             logging.error(f"機器人解析RECV時遇到ERROR:{e}")
+            raise Exception(e)
         handler_Action = MSG_Handlerlist.get(msg_id, None)
         if handler_Action:
             await handler_Action(websocket, msg_body, user_id, shared_data)
@@ -318,90 +289,151 @@ def add_shared_params(case_params: dict, shared_data: dict):
     except Exception as e:
         logging.warning(f"[WARNING] 新增共享參數ERROR:{e}")
 
+def register_NotPlay_handler(msg_id):
+    def wrapper(func):
+        notplayAction_Handler[msg_id] = func
+        return func
+    return wrapper
+
+@register_NotPlay_handler(201)
+async def handle_201(websocket, body, expect, retry, shared_data):
+    state, reps = await sendmsg_handler(websocket, 201, body, expect, retry)
+    if state:
+        shared_data["user_id"] = reps.get("userId")
+        logging.info(f"{shared_data["user_id"]} 已成功登入!!")
+    return state, reps
+
+@register_NotPlay_handler(208)
+async def handle_208(websocket, body, expect, retry, shared_data):
+    async with seat_lock:
+        for pos in range(8):
+            body["pos"] = pos if "pos" in body else pos
+            state, reps = await sendmsg_handler(websocket, 208, body, expect, retry)
+
+            if state and reps.get("reason") == "success！":
+                logging.info(f" {shared_data['user_id']} [入座成功] MsgId: {208}, Pos: {pos}")
+                break
+            await asyncio.sleep(0.3)
+
+        return state, reps
+
+@register_NotPlay_handler(2102)
+async def handle_2102(websocket, body, expect, retry, shared_data):
+    for pos in range(8):
+        body["pos"] = pos if "pos" in body else pos
+        logging.info(f" {shared_data["user_id"]} 嘗試坐下 {pos}")
+        state, reps = await sendmsg_handler(websocket, 2102, body, expect, retry)
+
+        if state and reps.get("reason") == "success！":
+            logging.info(f" {shared_data['user_id']} [入座成功] MsgId: {2102}, Pos: {pos}")
+            break
+        await asyncio.sleep(0.3)
+
+    return state, reps
 
 # 簡化登入到買入流程   
 
-async def robot_login(account, yamlData):
-    
-    uri = yamlData.get('url', "")
-    cases = yamlData.get("case", [])
-    play = yamlData.get('play', False)
-    async with websockets.connect(
-        uri,
-        ping_interval=None,
-        # ping_timeout=60
-    ) as websocket:
-        shared_data = {}
 
+async def connect_ws_retry(url, retries:int =5):
+    for i in range(retries):
+        try:
+            return await websockets.connect(
+                url,
+                ping_interval=None,
+                open_timeout=10,
+
+            )
+        except websockets.exceptions.ConnectionClosedError as wsconnecterror:
+            logging.warning(f"Fail to connect, retry {i+1}{retries}, Error: {wsconnecterror}")
+        except Exception as e:
+            logging.warning(f"Fail to connect, Retry {i+1}{retries}, Error: {e}")
+
+#  
+
+async def robot_login(account, yamlData):
+    url = yamlData.get('url', 'wss://web-pp2.pkxxz.com/ws/')
+    cases = yamlData.get("cases", [])
+    play = yamlData.get('play', False)
+
+    ws = await connect_ws_retry(url, 3)
+    shared_data = {}
+            
+    async with ws:
         for i,case in enumerate(cases):
             params = case.get('params')
             expect = case.get('expect', None)
             msg_id = params.get('msgid', 0)
             body = params.get('body', {})
             retry = params.get('retry', True)
-            loop = params.get('loop', 0)
             keep = params.get('keep', "")
 
-            casename = params.get('casename')
-            
-            # 因為是用一個檔案去跑多執行緒，帳密都要換
-            
             if msg_id == 201:
-                body["userName"] = account[0]
-                body["password"] = account[1]
+                body["userName"], body["password"] = account[0], account[1]
+
+            # 因為是用一個檔案去跑多執行緒，帳密都要換
+            handler_Action = notplayAction_Handler.get(msg_id, None)
+            if handler_Action:
+                state, reps = await handler_Action(ws, body, expect, retry, shared_data)
+            else:
+                state, reps = await sendmsg_handler(ws, msg_id, body, expect, retry)
 
             # 替換 game_id
-
             if "gameId" in body and shared_data.get("game_id") and body['gameId'] == "":
                 body["gameId"] = shared_data["game_id"]
 
-            # 嘗試入座類型（208, 2102）
-            # 機器人解析RECV時遇到ERROR:no close frame received or sent
-            if msg_id in [208]:
-                for pos in range(8):
-                    body["pos"] = pos if "pos" in body else pos
-                    logging.info(f" {shared_data["user_id"]} 嘗試坐下 {pos}")
-                    state, reps = await sendmsg_handler(websocket, msg_id, body, expect, retry)
-
-                    if state and reps.get("reason") == "success！":
-                        logging.info(f" {shared_data['user_id']} [入座成功] MsgId: {msg_id}, Pos: {pos}")
-                        break
-                    await asyncio.sleep(0.5)
-
-            if msg_id in [2102]:
-                for pos in range(8):
-                    body["seat"] = pos if "seat" in body else pos
-                    state, reps = await sendmsg_handler(websocket, msg_id, body, expect, retry)
-                    if state:
-                        logging.info(f"[入座成功] MsgId: {msg_id}, Pos: {pos}")
-                        break
-                    await asyncio.sleep(0.5)
-
-            # 發送
-            state, reps = await sendmsg_handler(websocket, msg_id, body, expect, retry)
-            
             if state and keep:
                 if isinstance(reps, dict) and (keep in reps):
                     shared_data[keep] = reps[keep]
-            # 登入成功時也保 userId
+
             if state and msg_id == 201:
                 try:
                     shared_data["user_id"] = reps.get("userId")
-                    logging.info(f"{shared_data["user_id"]} 已成功登入!!")
                 except Exception as e:
                     logging.info(e)
-            # 單純為了console辨識用
-            if state and msg_id == 213:
-                jsonify_res = json.load(reps)
-                shared_data["nick_name"] = jsonify_res.get("nickname")
-                shared_data["gameId"] = jsonify_res.get("nickname")
-        if "user_id" not in shared_data:
-            logging.error(f"[ERROR] 尚未成功登入，user_id 尚未取得，無法進入 robot_play")
-            return  # 或 raise Exception("登入失敗")
-        if play:
-            await robot_play(websocket, shared_data["user_id"], shared_data)
+        # raise ValueError("就是要錯啦")
+        if play and "user_id" in shared_data:
+            logging.info(f"進入牌桌前所儲存的shared_data: {shared_data}")
+            await robot_play(ws, shared_data["user_id"], shared_data)
         else:
-            logging.error(f"[DONE] CASE任務完成 遊玩模式: {play}")
+            await ws.close()
+            logging.info(f"[DONE] CASE任務完成 遊玩模式: {play}")
+
+# 將yaml的格式轉換成發送web socket api的format
+
+def msgbody_build(msg_id: int, msg_body: str) -> str:
+    return {
+        "msgId": msg_id,
+        "msgbody": json.dumps(msg_body)
+    }
+
+# 執行websocket的api發送，分為單次跟Retry
+
+async def sendmsg_handler(
+        websocket, msg_id: int, msg_body: str,
+        msg_expect=None,
+        retry=True,
+        timeout=20,
+        ):
+        msg = msgbody_build(msg_id, msg_body)
+        await websocket.send(json.dumps(msg))
+        tys = 0
+        while tys <= retry:
+            try:
+                reps = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+                jsonify_Reps = json.loads(reps)
+
+                reps_Msgid = jsonify_Reps.get("msgId", 0)
+                reps_Msgbody = json.loads(jsonify_Reps.get("msgBody", "{}"))
+
+                if msg_expect == None or (reps_Msgid == msg_expect[0] and msg_expect[1] in reps_Msgbody.get('reason', '')):
+                    logging.info(f"[RECV] MsgId: {reps_Msgid} {reps_Msgbody['reason']}")
+                    return True, reps_Msgbody
+                if not retry:
+                    return False, None
+            except Exception as e:
+                logging.error(f"[Error] Failed to receive/parse websocket message: {e}", exc_info=True)        
+                tys+=1
+
 
 def convert_card_type(type_number):
     card_types = {

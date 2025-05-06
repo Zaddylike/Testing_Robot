@@ -1,15 +1,16 @@
-apiname: NLH_robots
+apiname: NLH_robots_1
 env: dev
-url: wss://web.qosuat.com/ws/
+url: wss://web-pp2.pkxxz.com/ws/  #'ws://127.0.0.1:9999/ws
 method: websocket
 gametype: 
 headers:
   Content-Type: "application/json"
+
 play: True
-case:
+
+cases:
   - params:
       casename: 登入
-      url: wss://web.qosuat.com/ws/
       method: websocket
       headers:
         Content-Type: "application/json"
@@ -18,8 +19,8 @@ case:
       keep: ""
       msgid: 201
       body:
-        "userName": $usr
-        "password": $pwd
+        "userName": ""
+        "password": ""
         "imei": ""
         "model": ""
         "channel": "德州"
@@ -33,7 +34,6 @@ case:
 
   - params:
       casename: 進入_NLH_1
-      url: wss://web.qosuat.com/ws/
       method: websocket
       headers:
         Content-Type: "application/json"
@@ -43,16 +43,15 @@ case:
       msgid: 207
       body:
         "gameType": 800
-        "gameId": 1282387
+        "gameId": 1003130
         "ChangeDesk": False
         "is213Broadable": False
         "isCoinQuick": True
-        "coinQuickLevel": 741
+        "coinQuickLevel": 0
     expect: [207, 进入房间成功！]
 
   - params:
       casename: 坐下_NLH_1
-      url: wss://web.qosuat.com/ws/
       method: websocket
       headers:
         Content-Type: "application/json"
@@ -66,7 +65,6 @@ case:
 
   - params:
       casename: 買入_NLH_1
-      url: wss://web.qosuat.com/ws/
       method: websocket
       headers:
         Content-Type: "application/json"
@@ -75,7 +73,7 @@ case:
       keep: ""
       msgid: 210
       body:
-        "take": 500
+        "take": 3
         "usePlatformCoins": 1
         "reason": "normal"
     expect: [210, 成功！]
