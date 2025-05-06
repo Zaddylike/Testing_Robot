@@ -84,9 +84,11 @@ async def decide_robot_action(points, msg_body):
             return 3, call_count*2
         else:
             return 3, call_count
-
+    #Ax, Kx, Jx
+    if (points[0] >10):
+        return 3, call_count
     # 55, 66, 77, 88, 99
-    elif (points[0]==points[1]) and (5 <= points[0] < 10) and ((points[0]>=10)):
+    elif (points[0]==points[1]) and (5 <= points[0] < 10):
         return 3, call_count
     # 44, 33, 22
     elif (points[0]==points[1]) and (2 <= points[0] < 5):
@@ -151,7 +153,7 @@ async def handle_217(websocket, msg_body, user_id, shared_data):
         if msg_body.get('userId') == user_id:
             points = user_points.get(user_id)
             if not points or len(points) < 2:
-                logging.warning(f"Robot-{user_id} 還沒到拿牌階段:{points} ， 跳過。")
+                logging.warning(f"Robot-{shared_data[user_id]} 還沒到拿牌階段:{points} ， 跳過。")
                 return
             
             # 每次操作的id流水
@@ -171,7 +173,7 @@ async def handle_217(websocket, msg_body, user_id, shared_data):
             await websocket.send(json.dumps(msg))
 
             action_Map = {1:"弃牌", 2:"让牌", 3:"跟注", 4:"加注", 5:"全下", 6:"延时"}
-            logging.info(f"Robot-{user_id}  {action_Map.get(action["gameOpType"], "無動作")}")
+            logging.info(f"Robot-{shared_data[user_id]}  {action_Map.get(action["gameOpType"], "無動作")}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 217: {e}", exc_info=True)
 # 公共牌
