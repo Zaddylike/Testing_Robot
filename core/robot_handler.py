@@ -78,12 +78,6 @@ async def decide_robot_action(points, msg_body):
             return 4, raise_count*3
         else:
             return 4, raise_count*2
-    #強牌系列
-    if (points[0]>=10 and points[1]>=10):
-        if random.random() < 0.69:
-            return 3, call_count*2
-        else:
-            return 3, call_count
     #Ax, Kx, Jx
     if (points[0] >10):
         return 3, call_count
@@ -129,7 +123,7 @@ async def handle_913(websocket, msg_body, user_id, shared_data):
 
                     if old is None or old != points:
                         user_points[user_id] = points
-                        logging.info(f"Robot-{user_id} 手牌 {card_readable}")
+                        logging.info(f"Robot-{shared_data[user_id]} 手牌 {card_readable}")
         else:
             raise Exception(f"[ERROR] 玩家沒拿到2張牌阿!! ")
     except Exception as e:
@@ -182,19 +176,19 @@ async def handle_219(websocket, msg_body, user_id, shared_data):
     try:
         center_cards = msg_body.get('centerCard', [])
         if center_cards:
-            community_cards = convert_card_readable(center_cards)
-            logging.info(f"[Observe] 公共牌: {community_cards}")
+            points, card_readable, suits = convert_card_readable(center_cards)
+            logging.info(f"公共牌: {card_readable}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 219: {e}", exc_info=True)
 # 
 @register_handler(221)
 async def handle_221(websocket, msg_body, user_id, shared_data):
     try:
-        winners = msg_body.get('winners', [])
-        for winner in winners:
+        winLists = msg_body.get('winList', [])
+        for winner in winLists:
             win_userid = winner.get('userId')
             win_amount = winner.get('winScore', 0)
-            logging.info(f"[Observe] Robot:{win_userid} 贏得 {win_amount} 籌碼")
+            logging.info(f"Robot:{shared_data[user_id]} 贏得 {win_amount} 籌碼")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 221: {e}", exc_info=True)
 #
@@ -204,12 +198,12 @@ async def handle_216(websocket, msg_body, user_id, shared_data):
         # 公共牌信息
         community_cards = msg_body.get('publicCards', [])
         if community_cards:
-            logging.info(f"[Observe] 公共牌: {community_cards}")
+            logging.info(f"公共牌: {community_cards}")
         
         # 當前池底
         pot = msg_body.get('pot', 0)
         if pot:
-            logging.info(f"[Observe] 當前池底: {pot}")
+            logging.info(f"當前池底: {pot}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 216: {e}", exc_info=True)
 #
@@ -222,7 +216,7 @@ async def handle_220(websocket, msg_body, user_id, shared_data):
             win_amount = winner.get('winMoney', 0)
             cards = winner.get('cards', [])
             card_type = winner.get('cardType', '')
-            logging.info(f"[Observe] Robot:{player_id} 贏得 {win_amount}，手牌: {cards}，牌型: {card_type}")
+            logging.info(f"Robot:{player_id} 贏得 {win_amount}，手牌: {cards}，牌型: {card_type}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 220: {e}", exc_info=True)
 #
@@ -233,7 +227,7 @@ async def handle_218(websocket, msg_body, user_id, shared_data):
         action = msg_body.get('action', {})
         bet_amount = action.get('bet', 0)
         if bet_amount:
-            logging.info(f"[Observe] Robot:{player_id} 下注金額: {bet_amount}")
+            logging.info(f"Robot:{player_id} 下注金額: {bet_amount}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 218: {e}", exc_info=True)
 #Rebuy
