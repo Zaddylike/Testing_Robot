@@ -73,7 +73,7 @@ cases:
       keep: ""
       msgid: 210
       body:
-        "take": 3
+        "take": 888
         "usePlatformCoins": 1
         "reason": "normal"
     expect: [210, 成功！]

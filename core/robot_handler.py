@@ -8,7 +8,7 @@ MSG_Handlerlist = {}
 notplayAction_Handler = {}
 user_points = {}
 seat_lock = asyncio.Lock()
-
+shared_lock = asyncio.Lock()
 
 # msg回傳底牌轉換成數字，需優畫
 
@@ -123,7 +123,7 @@ async def handle_913(websocket, msg_body, user_id, shared_data):
 
                     if old is None or old != points:
                         user_points[user_id] = points
-                        logging.info(f"Robot-{shared_data[user_id]} 手牌 {card_readable}")
+                        logging.info(f"Robot {shared_data[user_id]} 手牌 {card_readable}")
         else:
             raise Exception(f"[ERROR] 玩家沒拿到2張牌阿!! ")
     except Exception as e:
@@ -147,7 +147,7 @@ async def handle_217(websocket, msg_body, user_id, shared_data):
         if msg_body.get('userId') == user_id:
             points = user_points.get(user_id)
             if not points or len(points) < 2:
-                logging.warning(f"Robot-{shared_data[user_id]} 還沒到拿牌階段:{points} ， 跳過。")
+                logging.warning(f"Robot {shared_data[user_id]} 還沒到拿牌階段:{points} ， 跳過。")
                 return
             
             # 每次操作的id流水
@@ -167,7 +167,7 @@ async def handle_217(websocket, msg_body, user_id, shared_data):
             await websocket.send(json.dumps(msg))
 
             action_Map = {1:"弃牌", 2:"让牌", 3:"跟注", 4:"加注", 5:"全下", 6:"延时"}
-            logging.info(f"Robot-{shared_data[user_id]}  {action_Map.get(action["gameOpType"], "無動作")}")
+            logging.info(f"Robot {shared_data[user_id]}  {action_Map.get(action["gameOpType"], "無動作")}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 217: {e}", exc_info=True)
 # 公共牌
@@ -188,7 +188,9 @@ async def handle_221(websocket, msg_body, user_id, shared_data):
         for winner in winLists:
             win_userid = winner.get('userId')
             win_amount = winner.get('winScore', 0)
-            logging.info(f"Robot:{shared_data[user_id]} 贏得 {win_amount} 籌碼")
+
+            user_display = shared_data.get(user_id, win_userid)
+            logging.info(f"Robot {user_display} 贏得 {win_amount} 籌碼")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 221: {e}", exc_info=True)
 #
@@ -216,7 +218,7 @@ async def handle_220(websocket, msg_body, user_id, shared_data):
             win_amount = winner.get('winMoney', 0)
             cards = winner.get('cards', [])
             card_type = winner.get('cardType', '')
-            logging.info(f"Robot:{player_id} 贏得 {win_amount}，手牌: {cards}，牌型: {card_type}")
+            logging.info(f"Robot {player_id} 贏得 {win_amount}，手牌: {cards}，牌型: {card_type}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 220: {e}", exc_info=True)
 #
@@ -227,7 +229,7 @@ async def handle_218(websocket, msg_body, user_id, shared_data):
         action = msg_body.get('action', {})
         bet_amount = action.get('bet', 0)
         if bet_amount:
-            logging.info(f"Robot:{player_id} 下注金額: {bet_amount}")
+            logging.info(f"Robot {player_id} 下注金額: {bet_amount}")
     except Exception as e:
         logging.warning(f"[ERROR] MsgId 218: {e}", exc_info=True)
 #Rebuy
@@ -295,20 +297,6 @@ async def handle_208(websocket, body, expect, retry, shared_data):
             await asyncio.sleep(0.3)
 
         return state, reps
-
-@register_NotPlay_handler(2102)
-async def handle_2102(websocket, body, expect, retry, shared_data):
-    for pos in range(8):
-        body["pos"] = pos if "pos" in body else pos
-        logging.info(f" {shared_data["user_id"]} 嘗試坐下 {pos}")
-        state, reps = await sendmsg_handler(websocket, 2102, body, expect, retry)
-
-        if state and reps.get("reason") == "success！":
-            logging.info(f" {shared_data['user_id']} [入座成功] MsgId: {2102}, Pos: {pos}")
-            break
-        await asyncio.sleep(0.3)
-
-    return state, reps
 
 # 工廠化所有機器人的各種操作函式，日後好維護
 
@@ -391,7 +379,7 @@ async def robot_login(account, yamlData):
                             shared_data["user_id"] = reps.get("userId")
                         except Exception as e:
                             logging.info(e)
-                # raise ValueError("就是要錯啦")
+                # 
                 if play and "user_id" in shared_data:
                     logging.info(f"進入牌桌前所儲存的shared_data: {shared_data}")
                     await robot_play(ws, shared_data["user_id"], shared_data)
